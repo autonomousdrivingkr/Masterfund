@@ -1,0 +1,90 @@
+{
+  "common": {
+    "appName": "Masterfund",
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "confirm": "Confirm",
+    "back": "Back"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "portfolio": "Portfolio",
+    "assets": "Assets",
+    "dividends": "Dividends",
+    "settings": "Settings",
+    "logout": "Logout",
+    "login": "Login",
+    "signup": "Sign Up"
+  },
+  "home": {
+    "hero": "Manage your global assets",
+    "hero2": "all in one place",
+    "subtitle": "Track stocks, ETFs, and bonds worldwide. Monitor real-time returns and dividend income.",
+    "cta": "Get Started Free",
+    "feature1Title": "Global Assets",
+    "feature1Desc": "Manage US, Korean, Japanese stocks, ETFs, and bonds in one place",
+    "feature2Title": "Real-time Returns",
+    "feature2Desc": "Track gains and losses in real-time against your cost basis",
+    "feature3Title": "Dividend Tracking",
+    "feature3Desc": "Automatically calculate dividend income and yield"
+  },
+  "auth": {
+    "email": "Email",
+    "password": "Password",
+    "name": "Name",
+    "loginTitle": "Sign In",
+    "signupTitle": "Create Account",
+    "loginButton": "Sign In",
+    "signupButton": "Create Account",
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "emailPlaceholder": "Enter your email",
+    "passwordPlaceholder": "Enter your password",
+    "namePlaceholder": "Enter your name",
+    "loginError": "Invalid email or password",
+    "signupError": "An error occurred during signup"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "totalValue": "Total Portfolio Value",
+    "totalReturn": "Total Return",
+    "totalProfit": "Total Profit/Loss",
+    "dividendYield": "Dividend Yield",
+    "myPortfolios": "My Portfolios",
+    "noPortfolio": "No portfolios yet",
+    "createPortfolio": "Create Portfolio",
+    "recentActivity": "Recent Activity"
+  },
+  "portfolio": {
+    "title": "Portfolio",
+    "create": "New Portfolio",
+    "name": "Portfolio Name",
+    "currency": "Base Currency",
+    "namePlaceholder": "e.g. US Stocks",
+    "assets": "Holdings",
+    "value": "Market Value",
+    "cost": "Cost Basis",
+    "return": "Return",
+    "profit": "Profit/Loss"
+  },
+  "asset": {
+    "title": "Add Asset",
+    "symbol": "Ticker Symbol",
+    "name": "Asset Name",
+    "type": "Asset Type",
+    "shares": "Shares",
+    "avgCost": "Average Cost",
+    "currentPrice": "Current Price",
+    "searchPlaceholder": "AAPL, Samsung, QQQ...",
+    "STOCK": "Stock",
+    "ETF": "ETF",
+    "BOND": "Bond",
+    "CRYPTO": "Crypto",
+    "OTHER": "Other"
+  }
+}

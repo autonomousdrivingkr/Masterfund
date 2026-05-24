@@ -1,0 +1,90 @@
+{
+  "common": {
+    "appName": "마스터펀드",
+    "loading": "로딩 중...",
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "편집",
+    "add": "추가",
+    "search": "검색",
+    "confirm": "확인",
+    "back": "뒤로"
+  },
+  "nav": {
+    "dashboard": "대시보드",
+    "portfolio": "포트폴리오",
+    "assets": "자산",
+    "dividends": "배당",
+    "settings": "설정",
+    "logout": "로그아웃",
+    "login": "로그인",
+    "signup": "회원가입"
+  },
+  "home": {
+    "hero": "나의 전 세계 자산을",
+    "hero2": "한 곳에서 관리하세요",
+    "subtitle": "주식, ETF, 채권을 등록하고 실시간 수익률과 배당 현황을 확인하세요.",
+    "cta": "무료로 시작하기",
+    "feature1Title": "전 세계 자산 지원",
+    "feature1Desc": "미국, 한국, 일본 등 전 세계 주식·ETF·채권을 한 번에 관리",
+    "feature2Title": "실시간 수익률 확인",
+    "feature2Desc": "매입가 대비 수익률과 손익을 실시간으로 추적",
+    "feature3Title": "배당 관리",
+    "feature3Desc": "배당 수령 내역과 배당수익률을 자동으로 계산"
+  },
+  "auth": {
+    "email": "이메일",
+    "password": "비밀번호",
+    "name": "이름",
+    "loginTitle": "로그인",
+    "signupTitle": "회원가입",
+    "loginButton": "로그인",
+    "signupButton": "회원가입",
+    "noAccount": "계정이 없으신가요?",
+    "hasAccount": "이미 계정이 있으신가요?",
+    "emailPlaceholder": "이메일을 입력하세요",
+    "passwordPlaceholder": "비밀번호를 입력하세요",
+    "namePlaceholder": "이름을 입력하세요",
+    "loginError": "이메일 또는 비밀번호가 올바르지 않습니다",
+    "signupError": "회원가입 중 오류가 발생했습니다"
+  },
+  "dashboard": {
+    "title": "대시보드",
+    "totalValue": "총 자산 가치",
+    "totalReturn": "총 수익률",
+    "totalProfit": "총 손익",
+    "dividendYield": "배당수익률",
+    "myPortfolios": "내 포트폴리오",
+    "noPortfolio": "포트폴리오가 없습니다",
+    "createPortfolio": "포트폴리오 만들기",
+    "recentActivity": "최근 활동"
+  },
+  "portfolio": {
+    "title": "포트폴리오",
+    "create": "새 포트폴리오",
+    "name": "포트폴리오 이름",
+    "currency": "기준 통화",
+    "namePlaceholder": "예: 미국 주식",
+    "assets": "보유 자산",
+    "value": "평가금액",
+    "cost": "투자금액",
+    "return": "수익률",
+    "profit": "손익"
+  },
+  "asset": {
+    "title": "자산 추가",
+    "symbol": "티커 심볼",
+    "name": "종목명",
+    "type": "자산 유형",
+    "shares": "수량",
+    "avgCost": "평균 매입가",
+    "currentPrice": "현재가",
+    "searchPlaceholder": "AAPL, 삼성전자, QQQ...",
+    "STOCK": "주식",
+    "ETF": "ETF",
+    "BOND": "채권",
+    "CRYPTO": "암호화폐",
+    "OTHER": "기타"
+  }
+}
