@@ -43,3 +43,10 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Capacitor - build artifacts only (android/ and ios/ source are committed)
+/android/app/build/
+/android/.gradle/
+/android/build/
+/ios/App/Pods/
+/ios/App/build/

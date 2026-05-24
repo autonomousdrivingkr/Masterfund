@@ -14,6 +14,7 @@
 6. [공통 — 환경 변수 체크리스트](#6-공통--환경-변수-체크리스트)
 7. [공통 — GitHub Actions CI/CD](#7-공통--github-actions-cicd)
 8. [운영 관리](#8-운영-관리)
+9. [Android 앱 배포 (Capacitor)](#9-android-앱-배포-capacitor)
 
 ---
 
@@ -502,4 +503,111 @@ vercel logs your-deployment-url
 
 대규모 트래픽, 엔터프라이즈 수준이 필요하다
     → 방법 C (AWS / GCP)
+
+Android 앱으로도 배포하고 싶다
+    → 9번 (Android 앱 배포) — 위 방법 중 하나로 서버를 먼저 배포한 뒤 진행
 ```
+
+---
+
+## 9. Android 앱 배포 (Capacitor)
+
+웹 서버를 그대로 유지하면서 Android WebView 앱으로 패키징합니다.  
+API, DB, 인증 모두 기존 서버에서 실행되고, 앱은 해당 서버를 불러오는 방식입니다.
+
+> **전제 조건**: 위 방법 A/B/C 중 하나로 서버가 먼저 배포되어 있어야 합니다.
+
+### 9-1. 필수 도구 설치
+
+| 도구 | 설치 위치 | 비고 |
+|------|-----------|------|
+| Android Studio | [developer.android.com/studio](https://developer.android.com/studio) | Android SDK 포함 |
+| JDK 17+ | Android Studio 설치 시 자동 포함 | |
+| Node.js 20+ | [nodejs.org](https://nodejs.org) | 이미 설치되어 있다면 생략 |
+
+### 9-2. 환경 변수 설정
+
+`.env.local` 에 배포된 서버 URL 추가:
+
+```env
+# 프로덕션 서버 URL
+CAPACITOR_SERVER_URL=https://your-domain.com
+```
+
+개발 시 에뮬레이터 또는 실기기로 테스트하려면:
+
+```env
+# Android 에뮬레이터 (호스트 PC의 localhost에 접근하는 특수 IP)
+CAPACITOR_SERVER_URL=http://10.0.2.2:3000
+
+# 실기기 (개발 PC와 같은 Wi-Fi, PC의 로컬 IP로 대체)
+CAPACITOR_SERVER_URL=http://192.168.x.x:3000
+```
+
+### 9-3. Android 프로젝트 동기화
+
+설정 변경 후 항상 sync를 실행해 `android/` 내부에 최신 설정이 반영되도록 합니다:
+
+```bash
+npm run android:sync
+# 또는
+npx cap sync android
+```
+
+### 9-4. Android Studio에서 빌드 및 실행
+
+```bash
+# Android Studio 열기
+npm run android:open
+# 또는
+npx cap open android
+```
+
+Android Studio가 열리면:
+
+1. **에뮬레이터 실행** — 우측 상단 디바이스 선택 → ▶ Run 클릭
+2. **실기기 연결** — USB 디버깅 활성화 후 기기 연결 → ▶ Run 클릭
+3. **서명된 APK/AAB 빌드** — Build → Generate Signed Bundle / APK
+
+### 9-5. 서명 키 생성 (최초 1회)
+
+Google Play 스토어 등록 및 APK 배포에 서명 키가 필요합니다:
+
+```bash
+# keytool은 JDK에 포함됨 (Android Studio 설치 후 사용 가능)
+keytool -genkey -v \
+  -keystore masterfund-release.jks \
+  -alias masterfund \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000
+```
+
+> **주의**: `masterfund-release.jks` 파일과 비밀번호는 분실 시 복구 불가. Git에 커밋하지 말고 안전한 곳에 백업.
+
+Android Studio에서 서명 설정:
+
+1. Build → Generate Signed Bundle / APK
+2. **Android App Bundle** 선택 (Play 스토어 권장) 또는 APK
+3. Key store path에 위에서 생성한 `.jks` 파일 선택
+4. Release 선택 → Finish
+
+### 9-6. Google Play 스토어 등록
+
+1. [Google Play Console](https://play.google.com/console) 계정 생성 (개발자 등록비 $25)
+2. **앱 만들기** → 앱 이름: `Masterfund`, 언어, 앱 유형 입력
+3. **프로덕션 → 출시 만들기** → 위에서 생성한 `.aab` 파일 업로드
+4. 스토어 등록 정보 (설명, 스크린샷, 아이콘) 작성 후 검토 제출
+
+### 9-7. 앱 업데이트 워크플로우
+
+서버 코드 변경만으로는 앱 재빌드가 불필요합니다 (WebView가 서버를 직접 로드).  
+아래 경우에만 앱을 재빌드하고 스토어에 새 버전을 제출합니다:
+
+| 변경 사항 | 앱 재빌드 필요? |
+|-----------|:--------------:|
+| 서버 코드 / UI 변경 | 불필요 (서버 배포만) |
+| `capacitor.config.ts` 변경 | 필요 |
+| 네이티브 플러그인 추가/변경 | 필요 |
+| 앱 아이콘 / 스플래시 변경 | 필요 |
+| `android/` 내 네이티브 코드 변경 | 필요 |

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Masterfund</string>
+    <string name="title_activity_main">Masterfund</string>
+    <string name="package_name">com.masterfund.app</string>
+    <string name="custom_url_scheme">com.masterfund.app</string>
+</resources>
