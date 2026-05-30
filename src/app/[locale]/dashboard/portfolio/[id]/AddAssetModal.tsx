@@ -139,60 +139,117 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
 
     reader.onload = (e) => {
       try {
-        // ArrayBuffer 방식 — readAsBinaryString보다 안정적
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
-
-        if (!wb.SheetNames.length) {
-          setBulkError("시트를 찾을 수 없습니다.");
-          return;
-        }
+        if (!wb.SheetNames.length) { setBulkError("시트를 찾을 수 없습니다."); return; }
 
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
-          defval: "",
-          raw: false, // 숫자를 문자열로 변환
-        });
 
-        if (!raw.length) {
-          setBulkError("데이터가 없습니다. 파일에 내용이 있는지 확인해주세요.");
-          return;
+        // 1) 모든 행을 raw 배열로 읽기 (헤더 처리 없이)
+        const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+          header: 1,
+          defval: "",
+          raw: false,
+        });
+        if (!allRows.length) { setBulkError("데이터가 없습니다."); return; }
+
+        const norm = (v: unknown) =>
+          String(v ?? "").toLowerCase().replace(/[\s_\-()（）[\]]/g, "");
+
+        // 키워드 셋
+        const SYM_KW  = ["symbol","티커","종목","종목코드","종목심볼","ticker","code","심볼","stockcode","itemcode"];
+        const NAME_KW = ["name","종목명","주식명","회사명","이름","company","종목이름"];
+        const SHR_KW  = ["shares","수량","주수","quantity","qty","보유수량","수량주","보유주수"];
+        const COST_KW = ["avgcost","avgprice","평균매입가","매입단가","평단가","취득단가","매입가",
+                         "매입가격","평균취득가","매입평균가","단가","price","매입금액","평균단가"];
+        const CUR_KW  = ["currency","통화","화폐","cur","통화단위"];
+
+        // 2) 첫 10행 중 헤더 행을 자동 감지 (키워드 매칭 점수 최고 행 선택)
+        let headerRowIdx = 0;
+        let bestScore = -1;
+
+        for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+          const row = allRows[i] as unknown[];
+          const normed = row.map(norm);
+          let score = 0;
+          if (normed.some(c => SYM_KW.includes(c)))  score += 4;
+          if (normed.some(c => SHR_KW.includes(c)))  score += 2;
+          if (normed.some(c => COST_KW.includes(c))) score += 2;
+          if (normed.some(c => NAME_KW.includes(c))) score += 1;
+          if (normed.some(c => CUR_KW.includes(c)))  score += 1;
+          if (score > bestScore) { bestScore = score; headerRowIdx = i; }
         }
 
-        // 대소문자 무시, 공백 무시 컬럼 매핑
-        const detectedCols = Object.keys(raw[0]);
-        const norm = (s: string) => s.toLowerCase().replace(/[\s_\-]/g, "");
-        const findCol = (...candidates: string[]) =>
-          detectedCols.find((c) => candidates.some((cand) => norm(c) === norm(cand))) ?? null;
+        const headerRow = (allRows[headerRowIdx] as unknown[]).map(String);
+        const normedHeader = headerRow.map(norm);
 
-        const symbolCol  = findCol("symbol","티커","종목","종목코드","ticker","code","종목심볼");
-        const nameCol    = findCol("name","종목명","회사명","이름","company","종목이름");
-        const sharesCol  = findCol("shares","수량","주수","quantity","qty","보유수량","수량주수");
-        const avgCostCol = findCol("avgcost","avgprice","평균매입가","매입가","평단가","매입단가","단가","price","매입가격","평균단가");
-        const currencyCol= findCol("currency","통화","화폐","cur");
+        // 3) 컬럼 인덱스 매핑
+        const findIdx = (kws: string[]) =>
+          normedHeader.findIndex(h => kws.includes(h));
 
-        if (!symbolCol) {
+        // 부분 매칭 fallback
+        const findIdxFuzzy = (kws: string[]) => {
+          let idx = findIdx(kws);
+          if (idx !== -1) return idx;
+          return normedHeader.findIndex(h => kws.some(k => h.includes(k) || k.includes(h)));
+        };
+
+        const symbolIdx   = findIdxFuzzy(SYM_KW);
+        const nameIdx     = findIdxFuzzy(NAME_KW);
+        const sharesIdx   = findIdxFuzzy(SHR_KW);
+        const avgCostIdx  = findIdxFuzzy(COST_KW);
+        const currencyIdx = findIdxFuzzy(CUR_KW);
+
+        if (symbolIdx === -1) {
           setBulkError(
-            `종목코드 컬럼을 찾을 수 없습니다.\n감지된 컬럼: ${detectedCols.join(", ") || "(없음)"}\n\n` +
-            `허용 컬럼명: symbol, 티커, 종목, 종목코드`
+            `종목코드 컬럼을 찾을 수 없습니다.\n` +
+            `감지된 헤더 행 (${headerRowIdx + 1}번째): ${headerRow.filter(Boolean).join(" | ")}\n\n` +
+            `허용 컬럼명 예시: symbol, 티커, 티커 심볼, 종목, 종목코드`
           );
           return;
         }
 
-        const parsed = raw
-          .map((row, i) => ({
-            _id: `r${i}`,
-            symbol: String(row[symbolCol] ?? "").toUpperCase().trim(),
-            name:    nameCol    ? String(row[nameCol]    ?? "").trim() : "",
-            shares:  sharesCol  ? String(row[sharesCol]  ?? "")       : "",
-            avgCost: avgCostCol ? String(row[avgCostCol] ?? "")       : "",
-            currency: (currencyCol ? String(row[currencyCol] ?? "USD") : "USD").toUpperCase().trim(),
-          }))
-          .filter((r) => r.symbol);
+        // 평균 매입가 컬럼명에서 통화 자동 추출 (예: "평균 매입가 (KRW)" → KRW)
+        let inferredCurrency = "USD";
+        if (avgCostIdx >= 0) {
+          const hdr = headerRow[avgCostIdx].toUpperCase();
+          if (hdr.includes("KRW") || hdr.includes("원"))  inferredCurrency = "KRW";
+          else if (hdr.includes("JPY") || hdr.includes("엔")) inferredCurrency = "JPY";
+          else if (hdr.includes("EUR") || hdr.includes("유로")) inferredCurrency = "EUR";
+          else if (hdr.includes("GBP"))  inferredCurrency = "GBP";
+          else if (hdr.includes("HKD"))  inferredCurrency = "HKD";
+          else if (hdr.includes("USD"))  inferredCurrency = "USD";
+        }
+
+        // 숫자 문자열 정규화 (콤마·통화기호 제거)
+        const numStr = (v: unknown) =>
+          String(v ?? "").replace(/[,，]/g, "").replace(/[^\d.]/g, "");
+
+        // 유효한 티커 심볼 정규식 (한글·공백 등 포함 시 합계 행으로 간주하고 제외)
+        const validSymbol = (s: string) => /^[A-Z0-9.\-^]+$/.test(s);
+
+        // 4) 헤더 행 이후의 데이터 행 파싱
+        const dataRows = allRows.slice(headerRowIdx + 1) as unknown[][];
+        const parsed = dataRows
+          .map((row, i) => {
+            const sym = String(row[symbolIdx] ?? "").toUpperCase().trim();
+            const cur = currencyIdx >= 0
+              ? (String(row[currencyIdx] ?? "").toUpperCase().trim() || inferredCurrency)
+              : inferredCurrency;
+            return {
+              _id: `r${i}`,
+              symbol:   sym,
+              name:     nameIdx   >= 0 ? String(row[nameIdx]   ?? "").trim() : "",
+              shares:   sharesIdx >= 0 ? numStr(row[sharesIdx])              : "",
+              avgCost:  avgCostIdx >= 0 ? numStr(row[avgCostIdx])            : "",
+              currency: cur,
+            };
+          })
+          .filter(r => r.symbol.length > 0 && validSymbol(r.symbol));
 
         if (!parsed.length) {
           setBulkError(
-            `종목코드가 모두 비어있습니다.\n감지된 컬럼: ${detectedCols.join(", ")}`
+            `유효한 종목 행이 없습니다.\n헤더: ${headerRow.filter(Boolean).join(" | ")}`
           );
           return;
         }
@@ -207,7 +264,7 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
       }
     };
 
-    reader.readAsArrayBuffer(file); // binary 대신 ArrayBuffer 사용
+    reader.readAsArrayBuffer(file);
   }
 
   function handleFileDrop(e: React.DragEvent) {
