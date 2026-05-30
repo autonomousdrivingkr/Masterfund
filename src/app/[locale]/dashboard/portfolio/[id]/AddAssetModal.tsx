@@ -50,6 +50,7 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
   /* ── Excel tab state ── */
   const [rows, setRows] = useState<ExcelRow[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [bulkError, setBulkError] = useState("");
   const [bulkDone, setBulkDone] = useState<number | null>(null);
@@ -130,27 +131,83 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
 
   /* ── Excel helpers ── */
   function parseFile(file: File) {
+    setBulkError("");
+    setParsing(true);
     const reader = new FileReader();
+
+    reader.onerror = () => { setParsing(false); setBulkError("파일을 읽을 수 없습니다."); };
+
     reader.onload = (e) => {
-      const wb = XLSX.read(e.target?.result, { type: "binary" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<Record<string, string | number>>(ws, { defval: "" });
-      setRows(
-        raw
+      try {
+        // ArrayBuffer 방식 — readAsBinaryString보다 안정적
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+
+        if (!wb.SheetNames.length) {
+          setBulkError("시트를 찾을 수 없습니다.");
+          return;
+        }
+
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
+          defval: "",
+          raw: false, // 숫자를 문자열로 변환
+        });
+
+        if (!raw.length) {
+          setBulkError("데이터가 없습니다. 파일에 내용이 있는지 확인해주세요.");
+          return;
+        }
+
+        // 대소문자 무시, 공백 무시 컬럼 매핑
+        const detectedCols = Object.keys(raw[0]);
+        const norm = (s: string) => s.toLowerCase().replace(/[\s_\-]/g, "");
+        const findCol = (...candidates: string[]) =>
+          detectedCols.find((c) => candidates.some((cand) => norm(c) === norm(cand))) ?? null;
+
+        const symbolCol  = findCol("symbol","티커","종목","종목코드","ticker","code","종목심볼");
+        const nameCol    = findCol("name","종목명","회사명","이름","company","종목이름");
+        const sharesCol  = findCol("shares","수량","주수","quantity","qty","보유수량","수량주수");
+        const avgCostCol = findCol("avgcost","avgprice","평균매입가","매입가","평단가","매입단가","단가","price","매입가격","평균단가");
+        const currencyCol= findCol("currency","통화","화폐","cur");
+
+        if (!symbolCol) {
+          setBulkError(
+            `종목코드 컬럼을 찾을 수 없습니다.\n감지된 컬럼: ${detectedCols.join(", ") || "(없음)"}\n\n` +
+            `허용 컬럼명: symbol, 티커, 종목, 종목코드`
+          );
+          return;
+        }
+
+        const parsed = raw
           .map((row, i) => ({
             _id: `r${i}`,
-            symbol: String(row.symbol ?? row.Symbol ?? row["티커"] ?? row["종목코드"] ?? "").toUpperCase().trim(),
-            name: String(row.name ?? row.Name ?? row["종목명"] ?? "").trim(),
-            shares: String(row.shares ?? row.Shares ?? row["수량"] ?? ""),
-            avgCost: String(row.avgCost ?? row["평균매입가"] ?? row["매입가"] ?? ""),
-            currency: String(row.currency ?? row.Currency ?? row["통화"] ?? "USD").toUpperCase().trim(),
+            symbol: String(row[symbolCol] ?? "").toUpperCase().trim(),
+            name:    nameCol    ? String(row[nameCol]    ?? "").trim() : "",
+            shares:  sharesCol  ? String(row[sharesCol]  ?? "")       : "",
+            avgCost: avgCostCol ? String(row[avgCostCol] ?? "")       : "",
+            currency: (currencyCol ? String(row[currencyCol] ?? "USD") : "USD").toUpperCase().trim(),
           }))
-          .filter((r) => r.symbol)
-      );
-      setBulkDone(null);
-      setBulkError("");
+          .filter((r) => r.symbol);
+
+        if (!parsed.length) {
+          setBulkError(
+            `종목코드가 모두 비어있습니다.\n감지된 컬럼: ${detectedCols.join(", ")}`
+          );
+          return;
+        }
+
+        setRows(parsed);
+        setBulkDone(null);
+      } catch (err) {
+        console.error("Excel parse error:", err);
+        setBulkError("파일 파싱 오류 — 올바른 .xlsx / .xls / .csv 파일인지 확인해주세요.");
+      } finally {
+        setParsing(false);
+      }
     };
-    reader.readAsBinaryString(file);
+
+    reader.readAsArrayBuffer(file); // binary 대신 ArrayBuffer 사용
   }
 
   function handleFileDrop(e: React.DragEvent) {
@@ -380,17 +437,40 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={handleFileDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors ${dragOver ? "border-indigo-400 bg-indigo-50" : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"}`}
+                  onClick={() => !parsing && fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-10 text-center transition-colors ${parsing ? "border-indigo-300 bg-indigo-50 cursor-wait" : dragOver ? "border-indigo-400 bg-indigo-50 cursor-copy" : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50 cursor-pointer"}`}
                 >
-                  <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                  <p className="text-sm font-medium text-slate-700">클릭하거나 파일을 드래그하세요</p>
-                  <p className="text-xs text-slate-400 mt-1">.xlsx / .xls / .csv 지원</p>
+                  {parsing ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-8 h-8 border-3 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-indigo-600 font-medium">파일 파싱 중…</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                        <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-medium text-slate-700">클릭하거나 파일을 드래그하세요</p>
+                      <p className="text-xs text-slate-400 mt-1">.xlsx / .xls / .csv 지원</p>
+                    </>
+                  )}
                   <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileChange} />
+                </div>
+              )}
+
+              {/* Error */}
+              {bulkError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <p className="text-sm text-red-600 font-medium mb-1">파싱 오류</p>
+                  {bulkError.split("\n").map((line, i) => (
+                    <p key={i} className="text-xs text-red-500">{line}</p>
+                  ))}
+                  <button
+                    onClick={() => { setBulkError(""); setRows([]); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                    className="mt-2 text-xs text-red-400 hover:text-red-600 underline"
+                  >다시 시도</button>
                 </div>
               )}
 
@@ -401,7 +481,7 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  엑셀 양식 다운로드
+                  엑셀 양식 다운로드 (허용 컬럼: symbol · shares · avgCost · currency)
                 </button>
               )}
 
@@ -449,8 +529,6 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
                       ))}
                     </div>
                   </div>
-
-                  {bulkError && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{bulkError}</p>}
 
                   <div className="flex gap-3">
                     <button onClick={onClose} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl text-sm font-medium hover:bg-slate-50">취소</button>
