@@ -33,9 +33,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const parsed = bulkSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
-  const result = await prisma.asset.createMany({
-    data: parsed.data.assets.map((a) => ({ ...a, portfolioId: id })),
-  });
+  // 입력 내 중복 심볼 병합 (가중 평균 매입가)
+  const incomingMap = new Map<string, typeof parsed.data.assets[0]>();
+  for (const asset of parsed.data.assets) {
+    const existing = incomingMap.get(asset.symbol);
+    if (existing) {
+      const totalShares = existing.shares + asset.shares;
+      const weightedAvg =
+        (existing.shares * existing.avgCost + asset.shares * asset.avgCost) / totalShares;
+      incomingMap.set(asset.symbol, { ...existing, shares: totalShares, avgCost: weightedAvg });
+    } else {
+      incomingMap.set(asset.symbol, asset);
+    }
+  }
 
-  return NextResponse.json({ created: result.count }, { status: 201 });
+  // 포트폴리오에 이미 존재하는 심볼은 upsert (합산)
+  let created = 0;
+  let merged = 0;
+
+  for (const asset of incomingMap.values()) {
+    const existing = await prisma.asset.findFirst({
+      where: { portfolioId: id, symbol: asset.symbol },
+    });
+
+    if (existing) {
+      const totalShares = existing.shares + asset.shares;
+      const weightedAvg =
+        (existing.shares * existing.avgCost + asset.shares * asset.avgCost) / totalShares;
+      await prisma.asset.update({
+        where: { id: existing.id },
+        data: { shares: totalShares, avgCost: weightedAvg, currency: asset.currency },
+      });
+      merged++;
+    } else {
+      await prisma.asset.create({
+        data: { ...asset, portfolioId: id },
+      });
+      created++;
+    }
+  }
+
+  return NextResponse.json({ created, merged }, { status: 201 });
 }

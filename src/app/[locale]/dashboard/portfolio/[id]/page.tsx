@@ -28,6 +28,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
   const t = useTranslations();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [fxRates, setFxRates] = useState<Record<string, number>>({}); // e.g. "USDKRW=X" → 1450
   const [showAdd, setShowAdd] = useState(false);
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
 
@@ -36,21 +37,53 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
     if (!res.ok) return;
     const data: Asset[] = await res.json();
     setAssets(data);
-    if (data.length > 0) {
-      const symbols = [...new Set(data.map((a) => a.symbol))].join(",");
-      const qRes = await fetch(`/api/market/quote?symbols=${symbols}`);
-      if (qRes.ok) setQuotes(await qRes.json());
+    if (data.length === 0) return;
+
+    const symbols = [...new Set(data.map((a) => a.symbol))].join(",");
+    const qRes = await fetch(`/api/market/quote?symbols=${symbols}`);
+    if (!qRes.ok) return;
+    const fetchedQuotes: Record<string, Quote> = await qRes.json();
+    setQuotes(fetchedQuotes);
+
+    // 통화가 다른 자산이 있으면 환율 조회
+    const neededPairs = new Set<string>();
+    for (const asset of data) {
+      const q = fetchedQuotes[asset.symbol];
+      if (q?.currency && asset.currency && q.currency !== asset.currency) {
+        // "USDKRW=X" → 1 USD 당 KRW 수
+        neededPairs.add(`${q.currency}${asset.currency}=X`);
+      }
     }
+    if (neededPairs.size === 0) return;
+
+    const fxRes = await fetch(`/api/market/quote?symbols=${[...neededPairs].join(",")}`);
+    if (!fxRes.ok) return;
+    const fxData: Record<string, Quote> = await fxRes.json();
+    const rates: Record<string, number> = {};
+    for (const pair of neededPairs) {
+      if (fxData[pair]?.price) rates[pair] = fxData[pair].price;
+    }
+    setFxRates(rates);
   }
 
   useEffect(() => { fetchAssets(); }, [id]);
 
-  const fmt = (n: number, cur: string) =>
+  const fmtNum = (n: number, cur: string) =>
     (cur === "KRW" || cur === "JPY")
       ? n.toLocaleString("ko-KR", { maximumFractionDigits: 0 })
       : n.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const symbol = (cur: string) => cur === "KRW" ? "₩" : cur === "JPY" ? "¥" : cur === "EUR" ? "€" : cur === "GBP" ? "£" : "$";
+  const currSym = (cur: string) =>
+    cur === "KRW" ? "₩" : cur === "JPY" ? "¥" : cur === "EUR" ? "€" : cur === "GBP" ? "£" : "$";
+
+  // avgCost를 현재가 통화(quoteCur)로 환산
+  function convertAvgCost(avgCost: number, assetCur: string, quoteCur: string): number {
+    if (assetCur === quoteCur) return avgCost;
+    const pair = `${quoteCur}${assetCur}=X`; // e.g. USDKRW=X
+    const rate = fxRates[pair];
+    if (!rate) return NaN; // 환율 미확인 → 수익률 미표시
+    return avgCost / rate; // KRW → USD: divide by USDKRW rate
+  }
 
   return (
     <div>
@@ -84,10 +117,17 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
           <tbody className="divide-y divide-slate-50">
             {assets.map((asset) => {
               const q = quotes[asset.symbol];
-              const cur = q?.currency ?? asset.currency ?? "USD";
-              const curPrice = q?.price ?? asset.avgCost;
-              const value = curPrice * asset.shares;
-              const ret = ((curPrice - asset.avgCost) / asset.avgCost) * 100;
+              const quoteCur = q?.currency ?? asset.currency ?? "USD";
+              const curPrice = q?.price ?? null;
+              const value = curPrice !== null ? curPrice * asset.shares : null;
+
+              // 수익률: avgCost를 현재가 통화로 환산 후 계산
+              const avgCostConverted = curPrice !== null
+                ? convertAvgCost(asset.avgCost, asset.currency, quoteCur)
+                : NaN;
+              const ret = !isNaN(avgCostConverted) && avgCostConverted > 0 && curPrice !== null
+                ? ((curPrice - avgCostConverted) / avgCostConverted) * 100
+                : null;
 
               return (
                 <tr key={asset.id} className="hover:bg-slate-50/50 transition-colors group">
@@ -96,17 +136,25 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
                     <div className="text-xs text-slate-400 truncate max-w-[160px]">{asset.name}</div>
                   </td>
                   <td className="px-6 py-4 text-right text-slate-700">{asset.shares}</td>
-                  <td className="px-6 py-4 text-right text-slate-500">{symbol(asset.currency)}{fmt(asset.avgCost, asset.currency)}</td>
+                  <td className="px-6 py-4 text-right text-slate-500">
+                    {currSym(asset.currency)}{fmtNum(asset.avgCost, asset.currency)}
+                  </td>
                   <td className="px-6 py-4 text-right text-slate-700 font-medium">
-                    {q
-                      ? <span>{symbol(cur)}{fmt(curPrice, cur)}</span>
+                    {curPrice !== null
+                      ? <span>{currSym(quoteCur)}{fmtNum(curPrice, quoteCur)}</span>
                       : <span className="text-slate-300 text-xs">조회 중</span>}
                   </td>
                   <td className="px-6 py-4 text-right font-semibold text-slate-900">
-                    {symbol(cur)}{fmt(value, cur)}
+                    {value !== null
+                      ? `${currSym(quoteCur)}${fmtNum(value, quoteCur)}`
+                      : <span className="text-slate-300 text-xs">—</span>}
                   </td>
-                  <td className={`px-6 py-4 text-right font-semibold ${ret >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {ret >= 0 ? "+" : ""}{ret.toFixed(2)}%
+                  <td className={`px-6 py-4 text-right font-semibold ${
+                    ret === null ? "text-slate-300" : ret >= 0 ? "text-emerald-600" : "text-red-500"
+                  }`}>
+                    {ret === null
+                      ? <span className="text-xs">환율 조회 중</span>
+                      : `${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`}
                   </td>
                   <td className="px-4 py-4">
                     <button

@@ -254,7 +254,29 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
           return;
         }
 
-        setRows(parsed);
+        // 동일 심볼 중복 병합 (가중 평균 매입가)
+        const symbolMap = new Map<string, ExcelRow>();
+        for (const row of parsed) {
+          const prev = symbolMap.get(row.symbol);
+          if (prev && Number(prev.shares) > 0 && Number(prev.avgCost) > 0
+              && Number(row.shares) > 0 && Number(row.avgCost) > 0) {
+            const totalShares = Number(prev.shares) + Number(row.shares);
+            const weightedAvg =
+              (Number(prev.shares) * Number(prev.avgCost) +
+               Number(row.shares) * Number(row.avgCost)) / totalShares;
+            symbolMap.set(row.symbol, {
+              ...prev,
+              shares: String(totalShares),
+              avgCost: weightedAvg >= 100
+                ? weightedAvg.toFixed(0)
+                : weightedAvg.toFixed(4),
+            });
+          } else {
+            symbolMap.set(row.symbol, row);
+          }
+        }
+
+        setRows(Array.from(symbolMap.values()));
         setBulkDone(null);
       } catch (err) {
         console.error("Excel parse error:", err);
@@ -311,8 +333,8 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
     });
 
     if (res.ok) {
-      const { created } = await res.json();
-      setBulkDone(created);
+      const { created, merged } = await res.json();
+      setBulkDone(created + merged);
       onSuccess();
     } else {
       setBulkError("일괄 추가에 실패했습니다.");
