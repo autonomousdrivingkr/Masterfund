@@ -22,6 +22,8 @@ interface Quote {
 }
 
 type DisplayCurrency = "KRW" | "USD";
+type SortKey = "value" | "ret";
+type SortDir = "asc" | "desc";
 
 const CUR_SYM: Record<string, string> = { KRW: "₩", USD: "$", JPY: "¥", EUR: "€", GBP: "£" };
 
@@ -42,6 +44,17 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
   const [displayCur, setDisplayCur]       = useState<DisplayCurrency>("KRW");
   const [showAdd, setShowAdd]             = useState(false);
   const [editAsset, setEditAsset]         = useState<Asset | null>(null);
+  const [sortKey, setSortKey]             = useState<SortKey>("value");
+  const [sortDir, setSortDir]             = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
 
   // ── 환율 조회 (USDKRW=X)
   const fetchFxRate = useCallback(async () => {
@@ -170,101 +183,122 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
       )}
 
       {/* 자산 테이블 */}
-      <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-100 bg-slate-50/50">
-            <tr className="text-xs text-slate-400 uppercase tracking-wide">
-              <th className="text-left px-6 py-4">{t("asset.symbol")}</th>
-              <th className="text-right px-6 py-4">{t("asset.shares")}</th>
-              <th className="text-right px-6 py-4">{t("asset.avgCost")} <span className="normal-case font-normal">({displayCur})</span></th>
-              <th className="text-right px-6 py-4">{t("asset.currentPrice")} <span className="normal-case font-normal">({displayCur})</span></th>
-              <th className="text-right px-6 py-4">{t("portfolio.value")}</th>
-              <th className="text-right px-6 py-4">{t("portfolio.return")}</th>
-              <th className="px-4 py-4" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {assets.map((asset) => {
-              const q = quotes[asset.symbol];
-              const rawPrice = q?.price ?? null;
-              const quoteCur = q?.currency ?? "USD";
+      {(() => {
+        // 모든 row 값 사전 계산
+        const rows = assets.map((asset) => {
+          const q = quotes[asset.symbol];
+          const rawPrice = q?.price ?? null;
+          const quoteCur = q?.currency ?? "USD";
+          const dispPrice   = rawPrice !== null ? toDisplay(rawPrice, quoteCur) : null;
+          const dispAvgCost = toDisplay(asset.avgCost, asset.currency);
+          const dispValue   = dispPrice !== null && isFinite(dispPrice) ? dispPrice * asset.shares : null;
+          const ret =
+            dispPrice !== null && isFinite(dispPrice) && isFinite(dispAvgCost) && dispAvgCost > 0
+              ? ((dispPrice - dispAvgCost) / dispAvgCost) * 100
+              : null;
+          return { asset, dispPrice, dispAvgCost, dispValue, ret,
+            loading: rawPrice === null,
+            converting: rawPrice !== null && (dispPrice === null || !isFinite(dispPrice ?? NaN)) };
+        });
 
-              // 모든 값을 displayCur로 환산
-              const dispPrice   = rawPrice !== null ? toDisplay(rawPrice, quoteCur)         : null;
-              const dispAvgCost = toDisplay(asset.avgCost, asset.currency);
-              const dispValue   = dispPrice !== null ? dispPrice * asset.shares             : null;
+        // 정렬
+        const sorted = [...rows].sort((a, b) => {
+          const av = sortKey === "value" ? (a.dispValue ?? -Infinity) : (a.ret ?? -Infinity);
+          const bv = sortKey === "value" ? (b.dispValue ?? -Infinity) : (b.ret ?? -Infinity);
+          return sortDir === "desc" ? bv - av : av - bv;
+        });
 
-              // 수익률: 동일 통화로 계산
-              const ret =
-                dispPrice !== null &&
-                isFinite(dispPrice) &&
-                isFinite(dispAvgCost) &&
-                dispAvgCost > 0
-                  ? ((dispPrice - dispAvgCost) / dispAvgCost) * 100
-                  : null;
+        // 정렬 헤더 버튼 헬퍼
+        const SortBtn = ({ col, label }: { col: SortKey; label: string }) => {
+          const active = sortKey === col;
+          return (
+            <button
+              onClick={() => handleSort(col)}
+              className={`inline-flex items-center gap-1 hover:text-slate-700 transition-colors ${active ? "text-indigo-600" : "text-slate-400"}`}
+            >
+              {label}
+              <span className="flex flex-col leading-none ml-0.5">
+                <svg className={`w-2.5 h-2.5 -mb-0.5 ${active && sortDir === "asc" ? "text-indigo-600" : "text-slate-300"}`} fill="currentColor" viewBox="0 0 10 6">
+                  <path d="M5 0L10 6H0z" />
+                </svg>
+                <svg className={`w-2.5 h-2.5 ${active && sortDir === "desc" ? "text-indigo-600" : "text-slate-300"}`} fill="currentColor" viewBox="0 0 10 6">
+                  <path d="M5 6L0 0h10z" />
+                </svg>
+              </span>
+            </button>
+          );
+        };
 
-              const loading = rawPrice === null;
-              const converting = rawPrice !== null && (dispPrice === null || isNaN(dispPrice ?? NaN));
-
-              return (
-                <tr key={asset.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-6 py-4">
-                    <div className="font-semibold text-slate-900">{asset.symbol}</div>
-                    <div className="text-xs text-slate-400 truncate max-w-[160px]">{asset.name}</div>
-                  </td>
-                  <td className="px-6 py-4 text-right text-slate-700">{asset.shares}</td>
-                  <td className="px-6 py-4 text-right text-slate-500">
-                    {isFinite(dispAvgCost)
-                      ? `${sym}${fmtNum(dispAvgCost, displayCur)}`
-                      : <span className="text-slate-300 text-xs">변환 중</span>}
-                  </td>
-                  <td className="px-6 py-4 text-right text-slate-700 font-medium">
-                    {loading ? (
-                      <span className="text-slate-300 text-xs">조회 중</span>
-                    ) : converting ? (
-                      <span className="text-slate-300 text-xs">변환 중</span>
-                    ) : (
-                      `${sym}${fmtNum(dispPrice!, displayCur)}`
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right font-semibold text-slate-900">
-                    {dispValue !== null && isFinite(dispValue)
-                      ? `${sym}${fmtNum(dispValue, displayCur)}`
-                      : <span className="text-slate-300 text-xs">—</span>}
-                  </td>
-                  <td className={`px-6 py-4 text-right font-semibold ${
-                    ret === null ? "text-slate-300"
-                    : ret >= 0 ? "text-emerald-600" : "text-red-500"
-                  }`}>
-                    {ret === null
-                      ? <span className="text-xs">—</span>
-                      : `${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`}
-                  </td>
-                  <td className="px-4 py-4">
-                    <button
-                      onClick={() => setEditAsset(asset)}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 opacity-0 group-hover:opacity-100 transition-all"
-                      title="수정"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                  </td>
+        return (
+          <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-100 bg-slate-50/50">
+                <tr className="text-xs uppercase tracking-wide">
+                  <th className="text-left px-6 py-4 text-slate-400">{t("asset.symbol")}</th>
+                  <th className="text-right px-6 py-4 text-slate-400">{t("asset.shares")}</th>
+                  <th className="text-right px-6 py-4 text-slate-400">{t("asset.avgCost")} <span className="normal-case font-normal">({displayCur})</span></th>
+                  <th className="text-right px-6 py-4 text-slate-400">{t("asset.currentPrice")} <span className="normal-case font-normal">({displayCur})</span></th>
+                  <th className="text-right px-6 py-4">
+                    <SortBtn col="value" label={t("portfolio.value")} />
+                  </th>
+                  <th className="text-right px-6 py-4">
+                    <SortBtn col="ret" label={t("portfolio.return")} />
+                  </th>
+                  <th className="px-4 py-4" />
                 </tr>
-              );
-            })}
-            {assets.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-6 py-16 text-center">
-                  <p className="text-slate-400 text-sm">아직 자산이 없습니다.</p>
-                  <p className="text-slate-300 text-xs mt-1">위 버튼을 눌러 종목을 추가해보세요.</p>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {sorted.map(({ asset, dispPrice, dispAvgCost, dispValue, ret, loading, converting }) => (
+                  <tr key={asset.id} className="hover:bg-slate-50/50 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="font-semibold text-slate-900">{asset.symbol}</div>
+                      <div className="text-xs text-slate-400 truncate max-w-[160px]">{asset.name}</div>
+                    </td>
+                    <td className="px-6 py-4 text-right text-slate-700">{asset.shares}</td>
+                    <td className="px-6 py-4 text-right text-slate-500">
+                      {isFinite(dispAvgCost)
+                        ? `${sym}${fmtNum(dispAvgCost, displayCur)}`
+                        : <span className="text-slate-300 text-xs">변환 중</span>}
+                    </td>
+                    <td className="px-6 py-4 text-right text-slate-700 font-medium">
+                      {loading ? <span className="text-slate-300 text-xs">조회 중</span>
+                        : converting ? <span className="text-slate-300 text-xs">변환 중</span>
+                        : `${sym}${fmtNum(dispPrice!, displayCur)}`}
+                    </td>
+                    <td className="px-6 py-4 text-right font-semibold text-slate-900">
+                      {dispValue !== null && isFinite(dispValue)
+                        ? `${sym}${fmtNum(dispValue, displayCur)}`
+                        : <span className="text-slate-300 text-xs">—</span>}
+                    </td>
+                    <td className={`px-6 py-4 text-right font-semibold ${
+                      ret === null ? "text-slate-300" : ret >= 0 ? "text-emerald-600" : "text-red-500"
+                    }`}>
+                      {ret === null ? <span className="text-xs">—</span> : `${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`}
+                    </td>
+                    <td className="px-4 py-4">
+                      <button onClick={() => setEditAsset(asset)}
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 opacity-0 group-hover:opacity-100 transition-all"
+                        title="수정">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {assets.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-16 text-center">
+                      <p className="text-slate-400 text-sm">아직 자산이 없습니다.</p>
+                      <p className="text-slate-300 text-xs mt-1">위 버튼을 눌러 종목을 추가해보세요.</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       {showAdd && (
         <AddAssetModal portfolioId={id} onSuccess={fetchAssets} onClose={() => setShowAdd(false)} />
