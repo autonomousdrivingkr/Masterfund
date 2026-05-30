@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
 
@@ -58,19 +58,6 @@ function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { 
   );
 }
 
-function CustomLegend({ payload }: { payload?: { value: string; color: string }[] }) {
-  if (!payload) return null;
-  return (
-    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 mt-2">
-      {payload.map((entry) => (
-        <div key={entry.value} className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: entry.color }} />
-          <span className="text-xs text-slate-500">{entry.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function DashboardCharts({ totalValue, annualDividend, dividendYieldPct, assetSlices, monthlyBars }: Props) {
   const hasAssets = assetSlices.length > 0;
@@ -95,26 +82,47 @@ export default function DashboardCharts({ totalValue, annualDividend, dividendYi
           {!hasAssets ? (
             <EmptyState label="자산을 추가하면 배분 차트가 표시됩니다" />
           ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={assetSlices}
-                  cx="50%"
-                  cy="45%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={2}
-                  dataKey="value"
-                  nameKey="symbol"
-                >
-                  {assetSlices.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="transparent" />
+            <div className="flex items-center gap-4">
+              {/* Donut */}
+              <div className="shrink-0" style={{ width: 180, height: 180 }}>
+                <PieChart width={180} height={180}>
+                  <Pie
+                    data={assetSlices}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={52}
+                    outerRadius={82}
+                    paddingAngle={2}
+                    dataKey="value"
+                    nameKey="symbol"
+                    strokeWidth={0}
+                  >
+                    {assetSlices.map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<PieTooltip />} />
+                </PieChart>
+              </div>
+
+              {/* Right legend — sorted high → low */}
+              <div className="flex-1 space-y-2 min-w-0">
+                {[...assetSlices]
+                  .sort((a, b) => b.pct - a.pct)
+                  .map((slice, i) => (
+                    <div key={slice.symbol} className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ background: PIE_COLORS[assetSlices.indexOf(slice) % PIE_COLORS.length] }}
+                      />
+                      <span className="text-xs text-slate-600 truncate flex-1">{slice.symbol}</span>
+                      <span className="text-xs font-semibold text-slate-800 shrink-0 tabular-nums">
+                        {slice.pct.toFixed(1)}%
+                      </span>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip content={<PieTooltip />} />
-                <Legend content={<CustomLegend />} />
-              </PieChart>
-            </ResponsiveContainer>
+              </div>
+            </div>
           )}
         </div>
 
