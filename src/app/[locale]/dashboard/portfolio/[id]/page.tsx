@@ -42,10 +42,20 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
   const [quotes, setQuotes]               = useState<Record<string, Quote>>({});
   const [usdKrw, setUsdKrw]               = useState<number | null>(null); // 1 USD = N KRW
   const [displayCur, setDisplayCur]       = useState<DisplayCurrency>("KRW");
-  const [showAdd, setShowAdd]             = useState(false);
-  const [editAsset, setEditAsset]         = useState<Asset | null>(null);
-  const [sortKey, setSortKey]             = useState<SortKey>("value");
-  const [sortDir, setSortDir]             = useState<SortDir>("desc");
+  const [showAdd, setShowAdd]                 = useState(false);
+  const [editAsset, setEditAsset]             = useState<Asset | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting]               = useState(false);
+  const [sortKey, setSortKey]                 = useState<SortKey>("value");
+  const [sortDir, setSortDir]                 = useState<SortDir>("desc");
+
+  async function handleDeleteAsset(assetId: string) {
+    setDeleting(true);
+    await fetch(`/api/portfolio/${id}/assets/${assetId}`, { method: "DELETE" });
+    setConfirmDeleteId(null);
+    setDeleting(false);
+    await fetchAssets();
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -276,13 +286,22 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
                       {ret === null ? <span className="text-xs">—</span> : `${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`}
                     </td>
                     <td className="px-4 py-4">
-                      <button onClick={() => setEditAsset(asset)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 opacity-0 group-hover:opacity-100 transition-all"
-                        title="수정">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onClick={() => setEditAsset(asset)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 transition-colors"
+                          title="수정">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(asset.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="삭제">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -300,8 +319,43 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ id: 
         );
       })()}
 
+      {/* 자산 삭제 확인 모달 */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <h2 className="text-base font-bold text-slate-900 text-center mb-2">자산 삭제</h2>
+            <p className="text-sm text-slate-500 text-center mb-6">
+              {(() => {
+                const a = assets.find((x) => x.id === confirmDeleteId);
+                return a ? `${a.symbol} (${a.shares}주) 을 삭제합니다.` : "이 자산을 삭제합니다.";
+              })()}
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDeleteId(null)}
+                className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl text-sm font-medium hover:bg-slate-50">
+                취소
+              </button>
+              <button onClick={() => handleDeleteAsset(confirmDeleteId)} disabled={deleting}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50">
+                {deleting ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAdd && (
-        <AddAssetModal portfolioId={id} onSuccess={fetchAssets} onClose={() => setShowAdd(false)} />
+        <AddAssetModal
+          portfolioId={id}
+          existingAssets={assets}
+          onSuccess={fetchAssets}
+          onClose={() => setShowAdd(false)}
+        />
       )}
       {editAsset && (
         <EditAssetModal portfolioId={id} asset={editAsset} onSuccess={fetchAssets} onClose={() => setEditAsset(null)} />

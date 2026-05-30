@@ -26,13 +26,22 @@ function CurrencyTag({ c }: { c: string }) {
   return <span className="text-slate-400">{c === "KRW" ? "₩" : c === "JPY" ? "¥" : c === "EUR" ? "€" : c === "GBP" ? "£" : "$"}</span>;
 }
 
+interface ExistingAsset {
+  id: string;
+  symbol: string;
+  shares: number;
+  avgCost: number;
+  currency: string;
+}
+
 interface Props {
   portfolioId: string;
+  existingAssets?: ExistingAsset[];
   onSuccess: () => void;
   onClose: () => void;
 }
 
-export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props) {
+export default function AddAssetModal({ portfolioId, existingAssets = [], onSuccess, onClose }: Props) {
   const [tab, setTab] = useState<"manual" | "excel">("manual");
 
   /* ── Manual tab state ── */
@@ -40,6 +49,7 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<SearchResult | null>(null);
+  const [duplicate, setDuplicate] = useState<ExistingAsset | null>(null); // 중복 감지
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [fetchingPrice, setFetchingPrice] = useState(false);
   const [form, setForm] = useState({ shares: "", avgCost: "", currency: "USD" });
@@ -78,10 +88,16 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
     } finally { setFetchingPrice(false); }
   }
 
+  function checkDuplicate(symbol: string) {
+    const dup = existingAssets.find((a) => a.symbol === symbol);
+    setDuplicate(dup ?? null);
+  }
+
   async function handleSelectResult(r: SearchResult) {
     setSelected(r);
     setForm((f) => ({ ...f, currency: r.currency }));
     setSearchResults([]);
+    checkDuplicate(r.symbol);
     const price = await fetchPrice(r.symbol);
     setCurrentPrice(price);
     if (price) setForm((f) => ({ ...f, avgCost: price.toFixed(price >= 100 ? 2 : 4) }));
@@ -96,14 +112,17 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
     if (res.ok) {
       const q = (await res.json())[symbol];
       if (q) {
-        setSelected({ symbol, name: q.name ?? symbol, exchange: q.exchange ?? "", assetType: "STOCK", currency: q.currency ?? "USD" });
+        const result: SearchResult = { symbol, name: q.name ?? symbol, exchange: q.exchange ?? "", assetType: "STOCK", currency: q.currency ?? "USD" };
+        setSelected(result);
         setForm((f) => ({ ...f, currency: q.currency ?? "USD", avgCost: q.price ? q.price.toFixed(q.price >= 100 ? 2 : 4) : "" }));
         setCurrentPrice(q.price ?? null);
+        checkDuplicate(symbol);
         return;
       }
     }
     setSelected({ symbol, name: symbol, exchange: "", assetType: "STOCK", currency: "USD" });
     setCurrentPrice(null);
+    checkDuplicate(symbol);
   }
 
   async function handleManualSubmit(e: React.FormEvent) {
@@ -111,21 +130,41 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
     if (!selected) return;
     setSubmitting(true);
     setSubmitError("");
-    const res = await fetch(`/api/portfolio/${portfolioId}/assets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        symbol: selected.symbol,
-        name: selected.name,
-        assetType: selected.assetType,
-        exchange: selected.exchange || "",
-        currency: form.currency,
-        shares: Number(form.shares),
-        avgCost: Number(form.avgCost),
-      }),
-    });
+
+    const newShares  = Number(form.shares);
+    const newAvgCost = Number(form.avgCost);
+
+    let res: Response;
+
+    if (duplicate) {
+      // 중복: 기존 레코드에 합산 (PUT)
+      const totalShares  = duplicate.shares + newShares;
+      const weightedAvg  =
+        (duplicate.shares * duplicate.avgCost + newShares * newAvgCost) / totalShares;
+      res = await fetch(`/api/portfolio/${portfolioId}/assets/${duplicate.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shares: totalShares, avgCost: weightedAvg, currency: form.currency }),
+      });
+    } else {
+      // 신규 추가 (POST)
+      res = await fetch(`/api/portfolio/${portfolioId}/assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: selected.symbol,
+          name: selected.name,
+          assetType: selected.assetType,
+          exchange: selected.exchange || "",
+          currency: form.currency,
+          shares: newShares,
+          avgCost: newAvgCost,
+        }),
+      });
+    }
+
     if (res.ok) { onSuccess(); onClose(); }
-    else { const e = await res.json().catch(() => ({})); setSubmitError(e?.error ?? "추가 실패"); }
+    else { const err = await res.json().catch(() => ({})); setSubmitError(err?.error ?? "추가 실패"); }
     setSubmitting(false);
   }
 
@@ -439,13 +478,31 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
                       <div className="font-bold text-slate-900">{selected.symbol}</div>
                       <div className="text-xs text-slate-500 truncate max-w-[260px]">{selected.name}</div>
                     </div>
-                    <button type="button" onClick={() => { setSelected(null); setCurrentPrice(null); }}
+                    <button type="button" onClick={() => { setSelected(null); setCurrentPrice(null); setDuplicate(null); }}
                       className="text-slate-400 hover:text-slate-600 w-6 h-6 flex items-center justify-center">
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
                   </div>
+
+                  {/* 중복 경고 배너 */}
+                  {duplicate && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p className="text-xs font-semibold text-amber-700">이미 포트폴리오에 있는 종목</p>
+                      </div>
+                      <p className="text-xs text-amber-600">
+                        기존: {duplicate.shares}주 · 평균매입가 {duplicate.avgCost.toLocaleString()} {duplicate.currency}
+                      </p>
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        아래 수량·매입가를 입력하면 기존과 <strong>가중 평균으로 합산</strong>됩니다.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Current price */}
                   <div className="flex items-center gap-2 text-sm">
@@ -499,7 +556,7 @@ export default function AddAssetModal({ portfolioId, onSuccess, onClose }: Props
                     <button type="button" onClick={onClose} className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl text-sm font-medium hover:bg-slate-50">취소</button>
                     <button type="submit" disabled={submitting || !form.shares || !form.avgCost}
                       className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors">
-                      {submitting ? "추가 중…" : "추가"}
+                      {submitting ? (duplicate ? "합산 중…" : "추가 중…") : duplicate ? "합산하기" : "추가"}
                     </button>
                   </div>
                 </form>
