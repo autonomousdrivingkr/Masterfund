@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getTranslations } from "next-intl/server";
 import { getMultipleQuotes } from "@/lib/market";
 import { Link } from "@/i18n/navigation";
+import DashboardCharts, { type AssetSlice, type MonthlyBar } from "./DashboardCharts";
 
 export default async function DashboardPage() {
   const t = await getTranslations();
@@ -30,6 +31,43 @@ export default async function DashboardPage() {
 
   const totalProfit = totalValue - totalCost;
   const totalReturn = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
+
+  // ── Chart data ──
+  // Asset allocation pie
+  const assetMap: Record<string, { symbol: string; value: number }> = {};
+  for (const portfolio of portfolios) {
+    for (const asset of portfolio.assets) {
+      const price = quotes[asset.symbol]?.price ?? asset.avgCost;
+      const val = price * asset.shares;
+      assetMap[asset.symbol] = { symbol: asset.symbol, value: (assetMap[asset.symbol]?.value ?? 0) + val };
+    }
+  }
+  const sorted = Object.values(assetMap).sort((a, b) => b.value - a.value);
+  const top8 = sorted.slice(0, 8);
+  const othersVal = sorted.slice(8).reduce((s, a) => s + a.value, 0);
+  if (othersVal > 0) top8.push({ symbol: "기타", value: othersVal });
+  const assetSlices: AssetSlice[] = top8.map((a) => ({
+    symbol: a.symbol,
+    value: a.value,
+    pct: totalValue > 0 ? (a.value / totalValue) * 100 : 0,
+  }));
+
+  // Monthly dividend projection
+  const monthlyAmounts = Array(12).fill(0) as number[];
+  let annualDividend = 0;
+  for (const portfolio of portfolios) {
+    for (const asset of portfolio.assets) {
+      const q = quotes[asset.symbol];
+      if (q?.dividendYield && q.dividendYield > 0 && q.price > 0) {
+        const annual = q.price * q.dividendYield * asset.shares;
+        annualDividend += annual;
+        for (let m = 0; m < 12; m++) monthlyAmounts[m] += annual / 12;
+      }
+    }
+  }
+  const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+  const monthlyBars: MonthlyBar[] = MONTHS.map((month, i) => ({ month, amount: monthlyAmounts[i] }));
+  const dividendYieldPct = totalValue > 0 ? (annualDividend / totalValue) * 100 : 0;
 
   return (
     <div>
@@ -84,6 +122,15 @@ export default async function DashboardPage() {
           iconBg="bg-violet-50 text-violet-600"
         />
       </div>
+
+      {/* Charts */}
+      <DashboardCharts
+        totalValue={totalValue}
+        annualDividend={annualDividend}
+        dividendYieldPct={dividendYieldPct}
+        assetSlices={assetSlices}
+        monthlyBars={monthlyBars}
+      />
 
       {/* Portfolios */}
       <div className="flex items-center justify-between mb-4">
