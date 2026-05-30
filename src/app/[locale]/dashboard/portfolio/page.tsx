@@ -17,6 +17,8 @@ export default function PortfolioPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", currency: "USD" });
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
 
   async function fetchPortfolios() {
     const res = await fetch("/api/portfolio");
@@ -24,6 +26,14 @@ export default function PortfolioPage() {
   }
 
   useEffect(() => { fetchPortfolios(); }, []);
+
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
+    setConfirmId(null);
+    setDeletingId(null);
+    await fetchPortfolios();
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -118,6 +128,38 @@ export default function PortfolioPage() {
         </div>
       )}
 
+      {/* 삭제 확인 모달 */}
+      {confirmId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl">
+            <div className="w-12 h-12 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-bold text-slate-900 text-center mb-2">포트폴리오 삭제</h2>
+            <p className="text-sm text-slate-500 text-center mb-6">
+              삭제하면 포트폴리오와 모든 자산 데이터가 영구적으로 삭제됩니다.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmId(null)}
+                className="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => handleDelete(confirmId)}
+                disabled={deletingId === confirmId}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl text-sm font-semibold disabled:opacity-50 transition-colors"
+              >
+                {deletingId === confirmId ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {portfolios.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center">
           <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -140,8 +182,9 @@ export default function PortfolioPage() {
             const colors = ["bg-indigo-500", "bg-violet-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500"];
             const color = colors[i % colors.length];
             return (
-              <Link key={p.id} href={`/dashboard/portfolio/${p.id}` as "/dashboard"}>
-                <div className="bg-white rounded-2xl border border-slate-100 p-6 hover:border-indigo-200 hover:shadow-sm transition-all group cursor-pointer">
+              <div key={p.id} className="relative group">
+                <Link href={`/dashboard/portfolio/${p.id}` as "/dashboard"}>
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 hover:border-indigo-200 hover:shadow-sm transition-all cursor-pointer">
                   <div className="flex items-center gap-3 mb-4">
                     <div className={`w-10 h-10 ${color} rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0`}>
                       {p.name.slice(0, 1).toUpperCase()}
@@ -157,7 +200,17 @@ export default function PortfolioPage() {
                   <div className="h-px bg-slate-100 mb-4" />
                   <p className="text-xs text-slate-400">자산 추가하여 수익률을 추적하세요</p>
                 </div>
-              </Link>
+                </Link>
+                <button
+                  onClick={(e) => { e.preventDefault(); setConfirmId(p.id); }}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                  title="포트폴리오 삭제"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
             );
           })}
         </div>
