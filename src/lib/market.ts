@@ -20,56 +20,87 @@ export interface SearchResult {
   currency: string;
 }
 
-// Yahoo Finance v8 API (no key required for basic usage)
+const YF_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/json",
+};
+
 const YF_BASE = "https://query1.finance.yahoo.com";
+const YF_BASE2 = "https://query2.finance.yahoo.com";
+
+async function yfFetch(path: string, revalidate = 300): Promise<Response> {
+  const res = await fetch(`${YF_BASE}${path}`, {
+    headers: YF_HEADERS,
+    next: { revalidate },
+  });
+  if (!res.ok) {
+    // fallback to query2
+    return fetch(`${YF_BASE2}${path}`, {
+      headers: YF_HEADERS,
+      next: { revalidate },
+    });
+  }
+  return res;
+}
 
 export async function searchAssets(query: string): Promise<SearchResult[]> {
-  const res = await fetch(
-    `${YF_BASE}/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0`,
-    { next: { revalidate: 60 } }
-  );
-  if (!res.ok) return [];
+  try {
+    const res = await yfFetch(
+      `/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=10&newsCount=0&enableFuzzyQuery=false`,
+      60
+    );
+    if (!res.ok) return [];
 
-  const data = await res.json();
-  const quotes = data?.finance?.result?.[0]?.quotes ?? [];
+    const data = await res.json();
+    // Yahoo Finance v1 search returns { quotes: [...] } directly
+    const quotes: Record<string, string>[] = data?.quotes ?? [];
 
-  return quotes
-    .filter((q: { quoteType?: string }) => q.quoteType && q.quoteType !== "FUTURE")
-    .map((q: { symbol?: string; longname?: string; shortname?: string; exchange?: string; quoteType?: string; currency?: string }) => ({
-      symbol: q.symbol ?? "",
-      name: q.longname ?? q.shortname ?? q.symbol ?? "",
-      exchange: q.exchange ?? "",
-      assetType: mapQuoteType(q.quoteType ?? ""),
-      currency: q.currency ?? "USD",
-    }));
+    return quotes
+      .filter((q) => q.quoteType && q.quoteType !== "FUTURE" && q.symbol)
+      .slice(0, 8)
+      .map((q) => ({
+        symbol: q.symbol ?? "",
+        name: q.longname ?? q.shortname ?? q.symbol ?? "",
+        exchange: q.exchange ?? "",
+        assetType: mapQuoteType(q.quoteType ?? ""),
+        currency: q.currency ?? "USD",
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export async function getQuote(symbol: string): Promise<QuoteData | null> {
-  const res = await fetch(
-    `${YF_BASE}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
-    { next: { revalidate: 300 } }
-  );
-  if (!res.ok) return null;
+  try {
+    const res = await yfFetch(
+      `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`,
+      300
+    );
+    if (!res.ok) return null;
 
-  const data = await res.json();
-  const meta = data?.chart?.result?.[0]?.meta;
-  if (!meta) return null;
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+    const meta = result?.meta;
+    if (!meta) return null;
 
-  return {
-    symbol: meta.symbol,
-    name: meta.longName ?? meta.shortName ?? symbol,
-    price: meta.regularMarketPrice ?? 0,
-    change: (meta.regularMarketPrice ?? 0) - (meta.chartPreviousClose ?? 0),
-    changePercent:
-      (((meta.regularMarketPrice ?? 0) - (meta.chartPreviousClose ?? 0)) /
-        (meta.chartPreviousClose ?? 1)) *
-      100,
-    currency: meta.currency ?? "USD",
-    exchange: meta.exchangeName ?? "",
-    dividendYield: meta.trailingAnnualDividendYield,
-    fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh,
-    fiftyTwoWeekLow: meta.fiftyTwoWeekLow,
-  };
+    const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? meta.regularMarketPreviousClose ?? 0;
+    const price = meta.regularMarketPrice ?? 0;
+
+    return {
+      symbol: meta.symbol ?? symbol,
+      name: meta.longName ?? meta.shortName ?? symbol,
+      price,
+      change: price - prevClose,
+      changePercent: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
+      currency: meta.currency ?? "USD",
+      exchange: meta.exchangeName ?? "",
+      dividendYield: meta.trailingAnnualDividendYield,
+      fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: meta.fiftyTwoWeekLow,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getMultipleQuotes(symbols: string[]): Promise<Record<string, QuoteData>> {
