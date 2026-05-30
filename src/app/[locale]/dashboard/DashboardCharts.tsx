@@ -22,6 +22,7 @@ interface Props {
   dividendYieldPct: number;
   assetSlices: AssetSlice[];
   monthlyBars: MonthlyBar[];
+  displayCur?: string;
 }
 
 const PIE_COLORS = [
@@ -29,37 +30,39 @@ const PIE_COLORS = [
   "#f59e0b", "#ef4444", "#ec4899", "#64748b", "#f97316",
 ];
 
-const fmtUSD = (n: number) =>
-  n >= 1_000_000
-    ? `$${(n / 1_000_000).toFixed(2)}M`
-    : n >= 1_000
-    ? `$${(n / 1_000).toFixed(1)}K`
-    : `$${n.toFixed(2)}`;
+function fmtUSD(n: number, cur = "USD") {
+  const s = cur === "KRW" ? "₩" : "$";
+  const isKrw = cur === "KRW";
+  if (n >= 1_000_000_000 && isKrw) return `${s}${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${s}${(n / 1_000_000).toFixed(isKrw ? 0 : 2)}${isKrw ? "M" : "M"}`;
+  if (n >= 1_000)     return `${s}${(n / 1_000).toFixed(isKrw ? 0 : 1)}K`;
+  return isKrw ? `${s}${n.toFixed(0)}` : `${s}${n.toFixed(2)}`;
+}
 
-function PieTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number; payload: AssetSlice }[] }) {
+function PieTooltip({ active, payload, cur }: { active?: boolean; payload?: { name: string; value: number; payload: AssetSlice }[]; cur?: string }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="bg-white border border-slate-100 rounded-xl shadow-lg px-4 py-3 text-sm">
       <p className="font-bold text-slate-900">{d.symbol}</p>
-      <p className="text-slate-500">{fmtUSD(d.value)}</p>
+      <p className="text-slate-500">{fmtUSD(d.value, cur)}</p>
       <p className="text-indigo-600 font-semibold">{d.pct.toFixed(1)}%</p>
     </div>
   );
 }
 
-function BarTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
+function BarTooltip({ active, payload, label, cur }: { active?: boolean; payload?: { value: number }[]; label?: string; cur?: string }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-white border border-slate-100 rounded-xl shadow-lg px-4 py-3 text-sm">
       <p className="font-semibold text-slate-700">{label}</p>
-      <p className="text-emerald-600 font-bold">{fmtUSD(payload[0].value)}</p>
+      <p className="text-emerald-600 font-bold">{fmtUSD(payload[0].value, cur)}</p>
     </div>
   );
 }
 
 
-export default function DashboardCharts({ totalValue, annualDividend, dividendYieldPct, assetSlices, monthlyBars }: Props) {
+export default function DashboardCharts({ totalValue, annualDividend, dividendYieldPct, assetSlices, monthlyBars, displayCur = "USD" }: Props) {
   const hasAssets = assetSlices.length > 0;
   const hasDividends = annualDividend > 0;
 
@@ -69,8 +72,8 @@ export default function DashboardCharts({ totalValue, annualDividend, dividendYi
       <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
         <h2 className="text-base font-semibold text-slate-900">자산 현황 분석</h2>
         <div className="flex flex-wrap gap-3">
-          <SummaryBadge label="전체 자산 규모" value={fmtUSD(totalValue)} color="indigo" />
-          <SummaryBadge label="연간 예상 배당" value={fmtUSD(annualDividend)} color="emerald" />
+          <SummaryBadge label="전체 자산 규모" value={fmtUSD(totalValue, displayCur)} color="indigo" />
+          <SummaryBadge label="연간 예상 배당" value={fmtUSD(annualDividend, displayCur)} color="emerald" />
           <SummaryBadge label="포트폴리오 배당률" value={`${dividendYieldPct.toFixed(2)}%`} color="amber" />
         </div>
       </div>
@@ -101,7 +104,7 @@ export default function DashboardCharts({ totalValue, annualDividend, dividendYi
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip content={<PieTooltip />} />
+                  <Tooltip content={<PieTooltip cur={displayCur} />} />
                 </PieChart>
               </div>
 
@@ -146,10 +149,10 @@ export default function DashboardCharts({ totalValue, annualDividend, dividendYi
                   tick={{ fontSize: 11, fill: "#94a3b8" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v) => (v >= 1000 ? `$${(v / 1000).toFixed(0)}K` : `$${v.toFixed(0)}`)}
+                  tickFormatter={(v) => fmtUSD(v, displayCur)}
                   width={48}
                 />
-                <Tooltip content={<BarTooltip />} cursor={{ fill: "#f8fafc" }} />
+                <Tooltip content={<BarTooltip cur={displayCur} />} cursor={{ fill: "#f8fafc" }} />
                 <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
